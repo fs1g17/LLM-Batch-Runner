@@ -15,6 +15,7 @@ Get comfortable with Go concurrency (worker pools, shared state, cancellation, r
 - Always check for: data races, goroutine leaks, ignored errors, missing `context` propagation, unbounded concurrency, and channels that are never closed or closed twice.
 - Be direct about mistakes. Don't rewrite my approach unless it's actually wrong; if it is, say why.
 - Don't guess at what I know. Ask.
+- Don't give unprompted hints. Only give me feedback or help when asked directly.
 
 ## What I'm building
 

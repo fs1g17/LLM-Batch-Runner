@@ -1,4 +1,4 @@
-compile:
+build:
 	go build -o batch .
 
 test:
