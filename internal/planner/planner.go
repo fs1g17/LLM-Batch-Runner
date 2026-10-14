@@ -6,6 +6,7 @@ import (
 	"path"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
+	"github.com/fs1g17/LLM-Batch-Runner/internal/llm"
 )
 
 // Today: make a single planner that, in a loop, process requests
@@ -21,17 +22,25 @@ import (
 
 type Planner struct {
 	RequestsComplete map[string]bool // maps if request file has corresponding response
+	LLM              *llm.LLM
+	Config           *config.Config
+}
+
+func NewPlanner(llm *llm.LLM, config *config.Config) *Planner {
+	return &Planner{
+		RequestsComplete: make(map[string]bool),
+		LLM:              llm,
+		Config:           config,
+	}
 }
 
 /*
 in directory contains requests, out directory will contain responses with the same filename
 in order to resume, we can simply see which output files don't exist for the input files
 */
-func (p *Planner) Plan(config config.Config) {
-	p.RequestsComplete = make(map[string]bool)
-
-	p.readFolder(config.In, false)
-	p.readFolder(config.Out, true)
+func (p *Planner) Plan() {
+	p.readFolder(p.Config.In, false)
+	p.readFolder(p.Config.Out, true)
 
 	// now we can start/resume
 	for requestFileName, completed := range p.RequestsComplete {
@@ -39,15 +48,15 @@ func (p *Planner) Plan(config config.Config) {
 			continue
 		}
 
-		dat, err := os.ReadFile(path.Join(config.In, requestFileName))
+		dat, err := os.ReadFile(path.Join(p.Config.In, requestFileName))
 		if err != nil {
 			// log and skip
-			fmt.Printf("failed to read file %s/%s, %v\n", config.In, requestFileName, err)
+			fmt.Printf("failed to read file %s/%s, %v\n", p.Config.In, requestFileName, err)
 			continue
 		}
 
 		var content string = string(dat)
-		fmt.Printf("contents of %s/%s are: '%s'\n", config.In, requestFileName, content)
+		fmt.Printf("contents of %s/%s are: '%s'\n", p.Config.In, requestFileName, content)
 	}
 }
 
