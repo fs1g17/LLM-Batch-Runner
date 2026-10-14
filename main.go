@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
+	"github.com/fs1g17/LLM-Batch-Runner/internal/planner"
 )
 
 func main() {
@@ -31,4 +32,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+
+	planner := planner.Planner{}
+	planner.Plan(config)
 }
