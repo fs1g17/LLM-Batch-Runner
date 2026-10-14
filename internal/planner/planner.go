@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
 	"github.com/fs1g17/LLM-Batch-Runner/internal/llm"
@@ -57,6 +58,19 @@ func (p *Planner) Plan() {
 
 		var content string = string(dat)
 		fmt.Printf("contents of %s/%s are: '%s'\n", p.Config.In, requestFileName, content)
+
+		response, err := p.LLM.Completion(content)
+		if err != nil {
+			fmt.Printf("failed to get completion for file: %s", requestFileName)
+			continue
+		}
+
+		writePath := filepath.Join(p.Config.Out, requestFileName)
+		err = os.WriteFile(writePath, []byte(response), 0644)
+		if err != nil {
+			fmt.Printf("failed to write completion for file: %s", requestFileName)
+			continue
+		}
 	}
 }
 
