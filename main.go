@@ -35,4 +35,8 @@ func main() {
 
 	planner := planner.Planner{}
 	planner.Plan(config)
+
+	for request, complete := range planner.RequestsComplete {
+		fmt.Println(request, "is complete:", complete)
+	}
 }
