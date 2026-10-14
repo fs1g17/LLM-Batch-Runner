@@ -3,6 +3,7 @@ package planner
 import (
 	"fmt"
 	"os"
+	"path"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
 )
@@ -31,6 +32,23 @@ func (p *Planner) Plan(config config.Config) {
 
 	p.readFolder(config.In, false)
 	p.readFolder(config.Out, true)
+
+	// now we can start/resume
+	for requestFileName, completed := range p.RequestsComplete {
+		if completed {
+			continue
+		}
+
+		dat, err := os.ReadFile(path.Join(config.In, requestFileName))
+		if err != nil {
+			// log and skip
+			fmt.Printf("failed to read file %s/%s, %v\n", config.In, requestFileName, err)
+			continue
+		}
+
+		var content string = string(dat)
+		fmt.Printf("contents of %s/%s are: '%s'\n", config.In, requestFileName, content)
+	}
 }
 
 func (p *Planner) readFolder(path string, setComplete bool) {
