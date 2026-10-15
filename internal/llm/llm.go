@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,9 @@ import (
 )
 
 var baseURL = "https://ai-gateway.vercel.sh/v1"
+
+var ErrTooManyRequests = errors.New("rate limit exceeded")
+var ErrRequest = errors.New("error during completion")
 
 type LLM struct {
 	apiKey string
@@ -80,6 +84,13 @@ func (l *LLM) Completion(request string) (string, error) {
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return "", ErrTooManyRequests
+		}
+		return "", fmt.Errorf("completion: status %d, %w\n", resp.StatusCode, err)
 	}
 
 	defer resp.Body.Close()
