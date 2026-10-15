@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
-	"github.com/fs1g17/LLM-Batch-Runner/internal/llm"
 )
 
 // Today: make a single planner that, in a loop, process requests
@@ -23,14 +22,18 @@ import (
 
 type Planner struct {
 	RequestsComplete map[string]bool // maps if request file has corresponding response
-	LLM              *llm.LLM
+	Provider         Provider
 	Config           *config.Config
 }
 
-func NewPlanner(llm *llm.LLM, config *config.Config) *Planner {
+type Provider interface {
+	Completion(request string) (string, error)
+}
+
+func NewPlanner(provider Provider, config *config.Config) *Planner {
 	return &Planner{
 		RequestsComplete: make(map[string]bool),
-		LLM:              llm,
+		Provider:         provider,
 		Config:           config,
 	}
 }
@@ -59,7 +62,7 @@ func (p *Planner) Plan() {
 		var content string = string(dat)
 		fmt.Printf("contents of %s/%s are: '%s'\n", p.Config.In, requestFileName, content)
 
-		response, err := p.LLM.Completion(content)
+		response, err := p.Provider.Completion(content)
 		if err != nil {
 			fmt.Printf("failed to get completion for file: %s", requestFileName)
 			continue
