@@ -1,13 +1,13 @@
 package llm
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 var baseURL = "https://ai-gateway.vercel.sh/v1"
@@ -59,22 +59,37 @@ type CompletionResponse struct {
 	Choices []CompletionChoice `json:"choices"`
 }
 
+type CompletionMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type CompletionRequest struct {
+	Model    string              `json:"model"`
+	Messages []CompletionMessage `json:"messages"`
+	Stream   bool                `json:"stream"`
+}
+
 func (l *LLM) Completion(request string) (string, error) {
 	client := &http.Client{}
 	endpoint := "/chat/completions"
 
-	payload := strings.NewReader(fmt.Sprintf(`{
-    "model": "%s",
-    "messages": [
-      {
-        "role": "user",
-        "content": "%s"
-      }
-    ],
-    "stream": false
-  }`, l.model, request))
+	payload, err := json.Marshal(CompletionRequest{
+		Model: l.model,
+		Messages: []CompletionMessage{
+			{
+				Role:    "user",
+				Content: request,
+			},
+		},
+		Stream: false,
+	})
 
-	req, err := http.NewRequest("POST", baseURL+endpoint, payload)
+	if err != nil {
+		return "", fmt.Errorf("marshall completion request: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", baseURL+endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}
