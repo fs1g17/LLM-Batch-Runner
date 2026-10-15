@@ -38,17 +38,31 @@ func NewPlanner(provider Provider, config *config.Config) *Planner {
 	}
 }
 
+type PlanSummary struct {
+	Skipped int
+	Done    int
+	Failed  int
+}
+
 /*
 in directory contains requests, out directory will contain responses with the same filename
 in order to resume, we can simply see which output files don't exist for the input files
 */
-func (p *Planner) Plan() {
+func (p *Planner) Plan() PlanSummary {
 	p.readFolder(p.Config.In, false)
 	p.readFolder(p.Config.Out, true)
+
+	// must make it thread safe later - because concurrent access will have race conditions
+	planSummary := PlanSummary{
+		Skipped: 0,
+		Done:    0,
+		Failed:  0,
+	}
 
 	// now we can start/resume
 	for requestFileName, completed := range p.RequestsComplete {
 		if completed {
+			planSummary.Skipped++
 			continue
 		}
 
@@ -64,17 +78,23 @@ func (p *Planner) Plan() {
 
 		response, err := p.Provider.Completion(content)
 		if err != nil {
-			fmt.Printf("failed to get completion for file: %s", requestFileName)
+			fmt.Fprintf(os.Stderr, "failed to get completion for file: %s, %v", requestFileName, err)
+			planSummary.Failed++
 			continue
 		}
 
 		writePath := filepath.Join(p.Config.Out, requestFileName)
 		err = os.WriteFile(writePath, []byte(response), 0644)
 		if err != nil {
-			fmt.Printf("failed to write completion for file: %s", requestFileName)
+			fmt.Fprintf(os.Stderr, "failed to write output file: %s, %v", requestFileName, err)
+			planSummary.Failed++
 			continue
 		}
+
+		planSummary.Done++
 	}
+
+	return planSummary
 }
 
 func (p *Planner) readFolder(path string, setComplete bool) {

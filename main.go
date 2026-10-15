@@ -36,5 +36,11 @@ func main() {
 
 	llm := llm.NewLLM()
 	planner := planner.NewPlanner(llm, &config)
-	planner.Plan()
+	summary := planner.Plan()
+
+	fmt.Println(summary)
+
+	if summary.Failed != 0 {
+		os.Exit(1)
+	}
 }
