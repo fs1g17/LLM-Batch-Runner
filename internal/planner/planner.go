@@ -78,16 +78,22 @@ func (p *Planner) Plan() PlanSummary {
 
 		response, err := p.Provider.Completion(content)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to get completion for file: %s, %v", requestFileName, err)
+			fmt.Fprintf(os.Stderr, "failed to get completion for file: %s, %v\n", requestFileName, err)
 			planSummary.Failed++
 			continue
 		}
 
-		writePath := filepath.Join(p.Config.Out, requestFileName)
+		writePath := filepath.Join(p.Config.Out, requestFileName+".tmp")
 		err = os.WriteFile(writePath, []byte(response), 0644)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to write output file: %s, %v", requestFileName, err)
+			fmt.Fprintf(os.Stderr, "failed to write temp output file: %s, %v\n", requestFileName, err)
 			planSummary.Failed++
+			continue
+		}
+
+		err = os.Rename(writePath, filepath.Join(p.Config.Out, requestFileName))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to rename output file: %v\n", err)
 			continue
 		}
 
