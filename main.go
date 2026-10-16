@@ -34,9 +34,17 @@ func main() {
 		os.Exit(1)
 	}
 
-	llm := llm.NewLLM()
+	llm, err := llm.NewLLM()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 	planner := planner.NewPlanner(llm, &config)
-	summary := planner.Plan()
+	summary, err := planner.Plan()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	fmt.Println(summary)
 

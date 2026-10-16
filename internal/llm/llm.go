@@ -14,17 +14,23 @@ var baseURL = "https://ai-gateway.vercel.sh/v1"
 
 var ErrTooManyRequests = errors.New("rate limit exceeded")
 var ErrRequest = errors.New("error during completion")
+var ErrMissingEnvVar = errors.New("missing environment variable")
 
 type LLM struct {
 	apiKey string
 	model  string
 }
 
-func NewLLM() *LLM {
+func NewLLM() (*LLM, error) {
+	llm := &LLM{
+		apiKey: "",
+		model:  "",
+	}
+
 	apiKey, exists := os.LookupEnv("VERCEL_AI_GATEWAY_API_KEY")
 	if !exists {
 		fmt.Fprintln(os.Stderr, "missing VERCEL_AI_GATEWAY_API_KEY environment variable")
-		os.Exit(1)
+		return llm, fmt.Errorf("missing VERCEL_AI_GATEWAY_API_KEY: %w", ErrMissingEnvVar)
 	}
 
 	model, exists := os.LookupEnv("VERCEL_AI_GATEWAY_MODEL")
@@ -33,12 +39,10 @@ func NewLLM() *LLM {
 		model = "openai/gpt-6-luna"
 	}
 
-	llm := &LLM{
-		apiKey: apiKey,
-		model:  model,
-	}
+	llm.apiKey = apiKey
+	llm.model = model
 
-	return llm
+	return llm, nil
 }
 
 type ChoiceMessage struct {

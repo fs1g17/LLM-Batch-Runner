@@ -48,15 +48,21 @@ type PlanSummary struct {
 in directory contains requests, out directory will contain responses with the same filename
 in order to resume, we can simply see which output files don't exist for the input files
 */
-func (p *Planner) Plan() PlanSummary {
-	p.readFolder(p.Config.In, false)
-	p.readFolder(p.Config.Out, true)
-
+func (p *Planner) Plan() (PlanSummary, error) {
 	// must make it thread safe later - because concurrent access will have race conditions
 	planSummary := PlanSummary{
 		Skipped: 0,
 		Done:    0,
 		Failed:  0,
+	}
+
+	err := p.readFolder(p.Config.In, false)
+	if err != nil {
+		return planSummary, fmt.Errorf("failed to read in dir: %w\n", err)
+	}
+	err = p.readFolder(p.Config.Out, true)
+	if err != nil {
+		return planSummary, fmt.Errorf("failed to read out dir: %w\n", err)
 	}
 
 	// now we can start/resume
@@ -100,14 +106,13 @@ func (p *Planner) Plan() PlanSummary {
 		planSummary.Done++
 	}
 
-	return planSummary
+	return planSummary, nil
 }
 
-func (p *Planner) readFolder(path string, setComplete bool) {
+func (p *Planner) readFolder(path string, setComplete bool) error {
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		return err
 	}
 
 	for _, e := range entries {
@@ -124,4 +129,6 @@ func (p *Planner) readFolder(path string, setComplete bool) {
 		}
 		p.RequestsComplete[e.Name()] = setComplete
 	}
+
+	return nil
 }
