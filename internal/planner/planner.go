@@ -3,7 +3,6 @@ package planner
 import (
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
@@ -72,7 +71,7 @@ func (p *Planner) Plan() (PlanSummary, error) {
 			continue
 		}
 
-		dat, err := os.ReadFile(path.Join(p.Config.In, requestFileName))
+		dat, err := os.ReadFile(filepath.Join(p.Config.In, requestFileName))
 		if err != nil {
 			// log and skip
 			fmt.Printf("failed to read file %s/%s, %v\n", p.Config.In, requestFileName, err)
