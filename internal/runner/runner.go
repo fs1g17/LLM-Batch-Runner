@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
 )
@@ -167,9 +168,29 @@ func (r *Runner) Run() (ResultSummary, error) {
 	jobs := make(chan string, numJobs)
 	results := make(chan Result, numJobs)
 
+	var wg sync.WaitGroup
 	for i := range r.Config.Workers {
-		go r.worker(i, jobs, results)
+		wg.Go(func() {
+			r.worker(i, jobs, results)
+		})
 	}
+
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	var wg2 sync.WaitGroup
+	wg2.Go(func() {
+		for result := range results {
+			if result == Success {
+				resultSummary.Succeeded++
+			}
+			if result == Fail {
+				resultSummary.Failed++
+			}
+		}
+	})
 
 	// now we can start/resume
 	for _, requestFileName := range r.RequestFileNames {
@@ -177,16 +198,7 @@ func (r *Runner) Run() (ResultSummary, error) {
 	}
 	close(jobs)
 
-	for range numJobs {
-		result := <-results
-		if result == Success {
-			resultSummary.Succeeded++
-		}
-		if result == Fail {
-			resultSummary.Failed++
-		}
-	}
-	close(results)
+	wg2.Wait()
 
 	return resultSummary, nil
 }
