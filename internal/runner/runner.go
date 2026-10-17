@@ -1,4 +1,4 @@
-package planner
+package runner
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ import (
 // - performs request to LLM
 // - writes output to Config.Out directory
 
-type Planner struct {
+type Runner struct {
 	RequestsComplete map[string]bool // maps if request file has corresponding response
 	Provider         Provider
 	Config           *config.Config
@@ -29,8 +29,8 @@ type Provider interface {
 	Completion(request string) (string, error)
 }
 
-func NewPlanner(provider Provider, config *config.Config) *Planner {
-	return &Planner{
+func NewRunner(provider Provider, config *config.Config) *Runner {
+	return &Runner{
 		RequestsComplete: make(map[string]bool),
 		Provider:         provider,
 		Config:           config,
@@ -43,11 +43,48 @@ type PlanSummary struct {
 	Failed  int
 }
 
+func (p *Runner) readFolder(path string, setComplete bool) error {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if setComplete {
+			// first check if the request was in the "in" folder
+			_, ok := p.RequestsComplete[e.Name()]
+			if !ok {
+				// skip files in the "out" folder that weren't in "in" folder
+				continue
+			}
+		}
+		p.RequestsComplete[e.Name()] = setComplete
+	}
+
+	return nil
+}
+
+func (p *Runner) plan() error {
+	err := p.readFolder(p.Config.In, false)
+	if err != nil {
+		return fmt.Errorf("failed to read in dir: %w\n", err)
+	}
+	err = p.readFolder(p.Config.Out, true)
+	if err != nil {
+		return fmt.Errorf("failed to read out dir: %w\n", err)
+	}
+
+	return nil
+}
+
 /*
 in directory contains requests, out directory will contain responses with the same filename
 in order to resume, we can simply see which output files don't exist for the input files
 */
-func (p *Planner) Plan() (PlanSummary, error) {
+func (p *Runner) Run() (PlanSummary, error) {
 	// must make it thread safe later - because concurrent access will have race conditions
 	planSummary := PlanSummary{
 		Skipped: 0,
@@ -55,13 +92,9 @@ func (p *Planner) Plan() (PlanSummary, error) {
 		Failed:  0,
 	}
 
-	err := p.readFolder(p.Config.In, false)
+	err := p.plan()
 	if err != nil {
-		return planSummary, fmt.Errorf("failed to read in dir: %w\n", err)
-	}
-	err = p.readFolder(p.Config.Out, true)
-	if err != nil {
-		return planSummary, fmt.Errorf("failed to read out dir: %w\n", err)
+		return planSummary, err
 	}
 
 	// now we can start/resume
@@ -106,28 +139,4 @@ func (p *Planner) Plan() (PlanSummary, error) {
 	}
 
 	return planSummary, nil
-}
-
-func (p *Planner) readFolder(path string, setComplete bool) error {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return err
-	}
-
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if setComplete {
-			// first check if the request was in the "in" folder
-			_, ok := p.RequestsComplete[e.Name()]
-			if !ok {
-				// skip files in the "out" folder that weren't in "in" folder
-				continue
-			}
-		}
-		p.RequestsComplete[e.Name()] = setComplete
-	}
-
-	return nil
 }
