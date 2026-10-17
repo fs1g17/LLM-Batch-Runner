@@ -21,6 +21,8 @@ import (
 
 type Runner struct {
 	RequestsComplete map[string]bool // maps if request file has corresponding response
+	RequestFileNames []string
+	RequestsSkipped  int // number of input folder files that have matching output files
 	Provider         Provider
 	Config           *config.Config
 }
@@ -37,13 +39,13 @@ func NewRunner(provider Provider, config *config.Config) *Runner {
 	}
 }
 
-type PlanSummary struct {
-	Skipped int
-	Done    int
-	Failed  int
+type ResultSummary struct {
+	Skipped   int
+	Succeeded int
+	Failed    int
 }
 
-func (p *Runner) readFolder(path string, setComplete bool) error {
+func (r *Runner) readFolder(path string, setComplete bool) error {
 	entries, err := os.ReadDir(path)
 	if err != nil {
 		return err
@@ -55,88 +57,136 @@ func (p *Runner) readFolder(path string, setComplete bool) error {
 		}
 		if setComplete {
 			// first check if the request was in the "in" folder
-			_, ok := p.RequestsComplete[e.Name()]
+			_, ok := r.RequestsComplete[e.Name()]
 			if !ok {
 				// skip files in the "out" folder that weren't in "in" folder
 				continue
 			}
 		}
-		p.RequestsComplete[e.Name()] = setComplete
+		r.RequestsComplete[e.Name()] = setComplete
 	}
 
 	return nil
 }
 
-func (p *Runner) plan() error {
-	err := p.readFolder(p.Config.In, false)
+func (r *Runner) plan() error {
+	err := r.readFolder(r.Config.In, false)
 	if err != nil {
 		return fmt.Errorf("failed to read in dir: %w\n", err)
 	}
-	err = p.readFolder(p.Config.Out, true)
+	err = r.readFolder(r.Config.Out, true)
 	if err != nil {
 		return fmt.Errorf("failed to read out dir: %w\n", err)
 	}
 
+	r.RequestsSkipped = 0
+	for requestFileName, complete := range r.RequestsComplete {
+		if complete {
+			// skip completed requests
+			r.RequestsSkipped++
+			continue
+		}
+		r.RequestFileNames = append(r.RequestFileNames, requestFileName)
+	}
+
 	return nil
+}
+
+type Result int
+
+const (
+	Success Result = iota
+	Fail
+)
+
+var resultName = map[Result]string{
+	Success: "done",
+	Fail:    "failed",
+}
+
+func (r *Runner) worker(id int, jobs <-chan string, results chan<- Result) {
+	// jobs receive filepath - this allows us to skip files
+	for requestFileName := range jobs {
+		dat, err := os.ReadFile(filepath.Join(r.Config.In, requestFileName))
+		if err != nil {
+			// log and skip
+			fmt.Printf("worker %d failed to read file %s/%s, %v\n", id, r.Config.In, requestFileName, err)
+			results <- Fail
+			continue
+		}
+
+		var content string = string(dat)
+		fmt.Printf("contents of %s/%s are: '%s'\n", r.Config.In, requestFileName, content)
+
+		response, err := r.Provider.Completion(content)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "worker %d failed to get completion for file: %s, %v\n", id, requestFileName, err)
+			results <- Fail
+			continue
+		}
+
+		writePath := filepath.Join(r.Config.Out, requestFileName+".tmp")
+		err = os.WriteFile(writePath, []byte(response), 0644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "worker %d failed to write temp output file: %s, %v\n", id, requestFileName, err)
+			results <- Fail
+			continue
+		}
+
+		err = os.Rename(writePath, filepath.Join(r.Config.Out, requestFileName))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "worker %d failed to rename output file: %v\n", id, err)
+			results <- Fail
+			continue
+		}
+
+		results <- Success
+	}
 }
 
 /*
 in directory contains requests, out directory will contain responses with the same filename
 in order to resume, we can simply see which output files don't exist for the input files
 */
-func (p *Runner) Run() (PlanSummary, error) {
+func (r *Runner) Run() (ResultSummary, error) {
 	// must make it thread safe later - because concurrent access will have race conditions
-	planSummary := PlanSummary{
-		Skipped: 0,
-		Done:    0,
-		Failed:  0,
+	resultSummary := ResultSummary{
+		Skipped:   0,
+		Succeeded: 0,
+		Failed:    0,
 	}
 
-	err := p.plan()
+	err := r.plan()
 	if err != nil {
-		return planSummary, err
+		return resultSummary, err
+	}
+
+	resultSummary.Skipped = r.RequestsSkipped
+
+	numJobs := len(r.RequestFileNames)
+	jobs := make(chan string, numJobs)
+	results := make(chan Result, numJobs)
+
+	for i := range r.Config.Workers {
+		go r.worker(i, jobs, results)
 	}
 
 	// now we can start/resume
-	for requestFileName, completed := range p.RequestsComplete {
-		if completed {
-			planSummary.Skipped++
-			continue
-		}
-
-		dat, err := os.ReadFile(filepath.Join(p.Config.In, requestFileName))
-		if err != nil {
-			// log and skip
-			fmt.Printf("failed to read file %s/%s, %v\n", p.Config.In, requestFileName, err)
-			continue
-		}
-
-		var content string = string(dat)
-		fmt.Printf("contents of %s/%s are: '%s'\n", p.Config.In, requestFileName, content)
-
-		response, err := p.Provider.Completion(content)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to get completion for file: %s, %v\n", requestFileName, err)
-			planSummary.Failed++
-			continue
-		}
-
-		writePath := filepath.Join(p.Config.Out, requestFileName+".tmp")
-		err = os.WriteFile(writePath, []byte(response), 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to write temp output file: %s, %v\n", requestFileName, err)
-			planSummary.Failed++
-			continue
-		}
-
-		err = os.Rename(writePath, filepath.Join(p.Config.Out, requestFileName))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to rename output file: %v\n", err)
-			continue
-		}
-
-		planSummary.Done++
+	for _, requestFileName := range r.RequestFileNames {
+		jobs <- requestFileName
 	}
+	close(jobs)
 
-	return planSummary, nil
+	for range numJobs {
+		result := <-results
+		if result == Success {
+			resultSummary.Succeeded++
+		}
+		if result == Fail {
+			resultSummary.Failed++
+		}
+	}
+	close(results)
+
+	return resultSummary, nil
 }
