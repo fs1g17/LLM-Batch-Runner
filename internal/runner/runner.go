@@ -116,7 +116,7 @@ func (r *Runner) worker(id int, jobs <-chan string, results chan<- Result) {
 		}
 
 		var content string = string(dat)
-		fmt.Printf("contents of %s/%s are: '%s'\n", r.Config.In, requestFileName, content)
+		fmt.Printf("worker %d got contents of %s/%s are: '%s'\n", id, r.Config.In, requestFileName, content)
 
 		response, err := r.Provider.Completion(content)
 		if err != nil {
