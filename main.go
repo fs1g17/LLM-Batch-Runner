@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
 	"github.com/fs1g17/LLM-Batch-Runner/internal/llm"
@@ -41,7 +43,9 @@ func main() {
 	}
 
 	runner := runner.NewRunner(llm, &config)
-	summary, err := runner.Run()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	summary, err := runner.Run(ctx)
+	defer stop()
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())

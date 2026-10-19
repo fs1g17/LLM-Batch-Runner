@@ -1,10 +1,12 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
 )
@@ -101,44 +103,54 @@ const (
 	Fail
 )
 
-func (r *Runner) worker(id int, jobs <-chan string, events chan<- Event) {
+func (r *Runner) worker(id int, ctx context.Context, jobs <-chan string, events chan<- Event) {
 	// jobs receive filepath - this allows us to skip files
-	for requestFileName := range jobs {
-		events <- Start
-		dat, err := os.ReadFile(filepath.Join(r.Config.In, requestFileName))
-		if err != nil {
-			// log and skip
-			fmt.Printf("worker %d failed to read file %s/%s, %v\n", id, r.Config.In, requestFileName, err)
-			events <- Fail
-			continue
+	for {
+		select {
+		case <-ctx.Done():
+			ctx.Err()
+			return
+		case requestFileName, ok := <-jobs:
+			if !ok {
+				return
+			}
+			events <- Start
+			time.Sleep(10 * time.Second)
+			dat, err := os.ReadFile(filepath.Join(r.Config.In, requestFileName))
+			if err != nil {
+				// log and skip
+				fmt.Printf("worker %d failed to read file %s/%s, %v\n", id, r.Config.In, requestFileName, err)
+				events <- Fail
+				continue
+			}
+
+			var content string = string(dat)
+			fmt.Printf("worker %d got contents of %s/%s are: '%s'\n", id, r.Config.In, requestFileName, content)
+
+			response, err := r.Provider.Completion(content)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "worker %d failed to get completion for file: %s, %v\n", id, requestFileName, err)
+				events <- Fail
+				continue
+			}
+
+			writePath := filepath.Join(r.Config.Out, requestFileName+".tmp")
+			err = os.WriteFile(writePath, []byte(response), 0644)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "worker %d failed to write temp output file: %s, %v\n", id, requestFileName, err)
+				events <- Fail
+				continue
+			}
+
+			err = os.Rename(writePath, filepath.Join(r.Config.Out, requestFileName))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "worker %d failed to rename output file: %v\n", id, err)
+				events <- Fail
+				continue
+			}
+
+			events <- Success
 		}
-
-		var content string = string(dat)
-		fmt.Printf("worker %d got contents of %s/%s are: '%s'\n", id, r.Config.In, requestFileName, content)
-
-		response, err := r.Provider.Completion(content)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "worker %d failed to get completion for file: %s, %v\n", id, requestFileName, err)
-			events <- Fail
-			continue
-		}
-
-		writePath := filepath.Join(r.Config.Out, requestFileName+".tmp")
-		err = os.WriteFile(writePath, []byte(response), 0644)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "worker %d failed to write temp output file: %s, %v\n", id, requestFileName, err)
-			events <- Fail
-			continue
-		}
-
-		err = os.Rename(writePath, filepath.Join(r.Config.Out, requestFileName))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "worker %d failed to rename output file: %v\n", id, err)
-			events <- Fail
-			continue
-		}
-
-		events <- Success
 	}
 }
 
@@ -146,7 +158,7 @@ func (r *Runner) worker(id int, jobs <-chan string, events chan<- Event) {
 in directory contains requests, out directory will contain responses with the same filename
 in order to resume, we can simply see which output files don't exist for the input files
 */
-func (r *Runner) Run() (ResultSummary, error) {
+func (r *Runner) Run(ctx context.Context) (ResultSummary, error) {
 	// must make it thread safe later - because concurrent access will have race conditions
 	resultSummary := ResultSummary{
 		Skipped:   0,
@@ -168,7 +180,7 @@ func (r *Runner) Run() (ResultSummary, error) {
 	var wg sync.WaitGroup
 	for i := range r.Config.Workers {
 		wg.Go(func() {
-			r.worker(i, jobs, events)
+			r.worker(i, ctx, jobs, events)
 		})
 	}
 
@@ -199,8 +211,13 @@ func (r *Runner) Run() (ResultSummary, error) {
 	})
 
 	// now we can start/resume
+outer:
 	for _, requestFileName := range r.RequestFileNames {
-		jobs <- requestFileName
+		select {
+		case jobs <- requestFileName:
+		case <-ctx.Done():
+			break outer
+		}
 	}
 	close(jobs)
 
