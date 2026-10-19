@@ -2,6 +2,7 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -74,7 +75,7 @@ type CompletionRequest struct {
 	Stream   bool                `json:"stream"`
 }
 
-func (l *LLM) Completion(request string) (string, error) {
+func (l *LLM) Completion(ctx context.Context, request string) (string, error) {
 	client := &http.Client{}
 	endpoint := "/chat/completions"
 
@@ -93,7 +94,7 @@ func (l *LLM) Completion(request string) (string, error) {
 		return "", fmt.Errorf("marshall completion request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", baseURL+endpoint, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}

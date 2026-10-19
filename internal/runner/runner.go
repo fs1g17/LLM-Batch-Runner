@@ -31,7 +31,7 @@ type Runner struct {
 }
 
 type Provider interface {
-	Completion(request string) (string, error)
+	Completion(ctx context.Context, request string) (string, error)
 }
 
 func NewRunner(provider Provider, config *config.Config) *Runner {
@@ -127,7 +127,7 @@ func (r *Runner) worker(id int, ctx context.Context, jobs <-chan string, events 
 			var content string = string(dat)
 			fmt.Printf("worker %d got contents of %s/%s are: '%s'\n", id, r.Config.In, requestFileName, content)
 
-			response, err := r.Provider.Completion(content)
+			response, err := r.Provider.Completion(ctx, content)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "worker %d failed to get completion for file: %s, %v\n", id, requestFileName, err)
 				events <- Fail
