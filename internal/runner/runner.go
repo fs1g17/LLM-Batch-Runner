@@ -93,26 +93,23 @@ func (r *Runner) plan() error {
 	return nil
 }
 
-type Result int
+type Event int
 
 const (
-	Success Result = iota
+	Start Event = iota
+	Success
 	Fail
 )
 
-var resultName = map[Result]string{
-	Success: "done",
-	Fail:    "failed",
-}
-
-func (r *Runner) worker(id int, jobs <-chan string, results chan<- Result) {
+func (r *Runner) worker(id int, jobs <-chan string, events chan<- Event) {
 	// jobs receive filepath - this allows us to skip files
 	for requestFileName := range jobs {
+		events <- Start
 		dat, err := os.ReadFile(filepath.Join(r.Config.In, requestFileName))
 		if err != nil {
 			// log and skip
 			fmt.Printf("worker %d failed to read file %s/%s, %v\n", id, r.Config.In, requestFileName, err)
-			results <- Fail
+			events <- Fail
 			continue
 		}
 
@@ -122,7 +119,7 @@ func (r *Runner) worker(id int, jobs <-chan string, results chan<- Result) {
 		response, err := r.Provider.Completion(content)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "worker %d failed to get completion for file: %s, %v\n", id, requestFileName, err)
-			results <- Fail
+			events <- Fail
 			continue
 		}
 
@@ -130,18 +127,18 @@ func (r *Runner) worker(id int, jobs <-chan string, results chan<- Result) {
 		err = os.WriteFile(writePath, []byte(response), 0644)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "worker %d failed to write temp output file: %s, %v\n", id, requestFileName, err)
-			results <- Fail
+			events <- Fail
 			continue
 		}
 
 		err = os.Rename(writePath, filepath.Join(r.Config.Out, requestFileName))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "worker %d failed to rename output file: %v\n", id, err)
-			results <- Fail
+			events <- Fail
 			continue
 		}
 
-		results <- Success
+		events <- Success
 	}
 }
 
@@ -166,29 +163,38 @@ func (r *Runner) Run() (ResultSummary, error) {
 
 	numJobs := len(r.RequestFileNames)
 	jobs := make(chan string, numJobs)
-	results := make(chan Result, numJobs)
+	events := make(chan Event, numJobs)
 
 	var wg sync.WaitGroup
 	for i := range r.Config.Workers {
 		wg.Go(func() {
-			r.worker(i, jobs, results)
+			r.worker(i, jobs, events)
 		})
 	}
 
 	go func() {
 		wg.Wait()
-		close(results)
+		close(events)
 	}()
 
 	var wg2 sync.WaitGroup
 	wg2.Go(func() {
-		for result := range results {
-			if result == Success {
+		inFlightCounter := 0
+		for event := range events {
+			if event == Start {
+				inFlightCounter++
+			} else {
+				inFlightCounter--
+			}
+
+			if event == Success {
 				resultSummary.Succeeded++
 			}
-			if result == Fail {
+			if event == Fail {
 				resultSummary.Failed++
 			}
+
+			fmt.Printf("in-flight: %d, done: %d, failed: %d\n", inFlightCounter, resultSummary.Succeeded, resultSummary.Failed)
 		}
 	})
 

@@ -3,3 +3,6 @@ build:
 
 test:
 	go test ./...
+
+clear: 
+	find ./data/out -mindepth 1 -delete
