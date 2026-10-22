@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
+	"golang.org/x/time/rate"
 )
 
 // Today: make a single planner that, in a loop, process requests
@@ -103,15 +104,18 @@ const (
 	Fail
 )
 
-func (r *Runner) worker(id int, ctx context.Context, jobs <-chan string, events chan<- Event) {
+func (r *Runner) worker(ctx context.Context, id int, jobs <-chan string, events chan<- Event, limiter *rate.Limiter) {
 	// jobs receive filepath - this allows us to skip files
 	for {
 		select {
 		case <-ctx.Done():
-			ctx.Err()
 			return
 		case requestFileName, ok := <-jobs:
 			if !ok || ctx.Err() != nil {
+				return
+			}
+			err := limiter.Wait(ctx)
+			if err != nil {
 				return
 			}
 			events <- Start
@@ -181,10 +185,12 @@ func (r *Runner) Run(ctx context.Context) (ResultSummary, error) {
 	jobs := make(chan string, numJobs)
 	events := make(chan Event, numJobs)
 
+	limiter := rate.NewLimiter(rate.Limit(r.Config.Rps), 1)
+
 	var wg sync.WaitGroup
 	for i := range r.Config.Workers {
 		wg.Go(func() {
-			r.worker(i, ctx, jobs, events)
+			r.worker(ctx, i, jobs, events, limiter)
 		})
 	}
 
