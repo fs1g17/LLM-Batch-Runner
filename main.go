@@ -44,8 +44,11 @@ func main() {
 
 	runner := runner.NewRunner(llm, &config)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	go func() {
+		<-ctx.Done()
+		stop()
+	}()
 	summary, err := runner.Run(ctx)
-	defer stop()
 
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -53,6 +56,11 @@ func main() {
 	}
 
 	fmt.Println(summary)
+
+	if ctx.Err() != nil {
+		fmt.Println("Run was stopped by user")
+		os.Exit(130)
+	}
 
 	if summary.Failed != 0 {
 		os.Exit(1)

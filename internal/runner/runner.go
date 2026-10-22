@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/fs1g17/LLM-Batch-Runner/internal/config"
 )
@@ -99,6 +98,7 @@ type Event int
 
 const (
 	Start Event = iota
+	Skip
 	Success
 	Fail
 )
@@ -111,11 +111,10 @@ func (r *Runner) worker(id int, ctx context.Context, jobs <-chan string, events 
 			ctx.Err()
 			return
 		case requestFileName, ok := <-jobs:
-			if !ok {
+			if !ok || ctx.Err() != nil {
 				return
 			}
 			events <- Start
-			time.Sleep(10 * time.Second)
 			dat, err := os.ReadFile(filepath.Join(r.Config.In, requestFileName))
 			if err != nil {
 				// log and skip
@@ -129,6 +128,11 @@ func (r *Runner) worker(id int, ctx context.Context, jobs <-chan string, events 
 
 			response, err := r.Provider.Completion(ctx, content)
 			if err != nil {
+				if ctx.Err() != nil {
+					events <- Skip
+					fmt.Println("skipping this request")
+					return
+				}
 				fmt.Fprintf(os.Stderr, "worker %d failed to get completion for file: %s, %v\n", id, requestFileName, err)
 				events <- Fail
 				continue
@@ -205,8 +209,11 @@ func (r *Runner) Run(ctx context.Context) (ResultSummary, error) {
 			if event == Fail {
 				resultSummary.Failed++
 			}
+			if event == Skip {
+				resultSummary.Skipped++
+			}
 
-			fmt.Printf("in-flight: %d, done: %d, failed: %d\n", inFlightCounter, resultSummary.Succeeded, resultSummary.Failed)
+			fmt.Printf("in-flight: %d, done: %d, skipped: %d, failed: %d\n", inFlightCounter, resultSummary.Succeeded, resultSummary.Skipped, resultSummary.Failed)
 		}
 	})
 
